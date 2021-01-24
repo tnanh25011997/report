@@ -7,6 +7,13 @@ const fileupload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/error');
+require('./utils/redisInit');
+
+// client.SET("foo", "bar");
+// client.GET('foo', (err, value) => {
+//     if (err) console.log(err.message);
+//     console.log(value);
+// })
 
 //load env vars
 dotenv.config({ path: './config/config.env' });

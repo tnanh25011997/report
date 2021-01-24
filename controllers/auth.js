@@ -1,7 +1,10 @@
 const ErrorResponse = require('../utils/errorResponse');
 const asyncHandler = require('../middleware/async');
 const User = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const client = require('../utils/redisInit');
 
 // @desc      Register user
 // @route     POST /api/v1/auth/register
@@ -47,19 +50,67 @@ exports.login = asyncHandler(async (req, res, next) => {
     sendTokenResponse(user, 200, res);
 });
 
+//save refresh token to DB
+const saveRefreshToken = async (user, refreshToken) => {
+    const id = user._id;
+    await RefreshToken.deleteMany({ user: user._id });
+    expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    await RefreshToken.create({
+        user: id,
+        refreshToken,
+        expires
+    });
+
+    client.set(
+        String(id),
+        String(refreshToken),
+        'EX', 365 * 24 * 60 * 60
+    );
+}
+
 //Get token from model, send cookie and response
 const sendTokenResponse = (user, statusCode, res) => {
     //create token
     const token = user.getSignedJwtToken();
+    const refreshToken = user.getRefreshJwtToken();
     const options = {
         expires: new Date(Date.now() + process.env.JWT_COOKIE_EXPIRE * 24 * 60 * 60 * 1000),
         httpOnly: true
     }
+    saveRefreshToken(user, refreshToken);
     res.status(statusCode).cookie('token', token, options).json({
         success: true,
-        token: token
+        token: token,
+        refreshToken: refreshToken
     })
 }
+
+exports.refreshToken = async (req, res) => {
+    const refreshTokenFromClient = req.body.refreshToken;
+    const refresh = await RefreshToken.findOne({ refreshToken: refreshTokenFromClient });
+
+
+    if (refreshTokenFromClient && (refresh)) {
+        try {
+
+            const decoded = await jwt.verify(refreshTokenFromClient, process.env.REFRESH_TOKEN_SECRET);
+            console.log(decoded);
+            const user = await User.findById(decoded.id);
+            const token = user.getSignedJwtToken();
+            refresh.remove();
+            return res.status(200).json({ token });
+        } catch (error) {
+            res.status(403).json({
+                message: 'Invalid refresh token.',
+            });
+        }
+    } else {
+        return res.status(403).send({
+            message: 'No token provided.',
+        });
+    }
+};
 
 exports.getMe = asyncHandler(async (req, res, next) => {
     const user = await User.findById(req.user.id);
@@ -161,9 +212,20 @@ exports.updatePassword = asyncHandler(async (req, res, next) => {
 //@desc     Logout
 //@route    GET /api/v1/auth/logout
 exports.logout = asyncHandler(async (req, res, next) => {
-    res.cookie('token', 'none', {
-        expires: new Date(Date.now() + 10),
-        httpOnly: true
-    })
-    res.status(200).json({ success: true, data: {} });
+
+    // res.cookie('token', 'none', {
+    //     expires: new Date(Date.now() + 10),
+    //     httpOnly: true
+    // })
+    // res.status(200).json({ success: true, data: {} });
+    const { refreshToken } = req.body;
+    const decoded = await jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+    client.DEL(decoded.id, (err, val) => {
+        if (err) console.log(err.message);
+    });
+
+    res.status(204).json({
+        message: "success"
+    });
 });

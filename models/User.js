@@ -52,6 +52,13 @@ UserSchema.methods.getSignedJwtToken = function () {
     });
 }
 
+//Refresh token
+UserSchema.methods.getRefreshJwtToken = function () {
+    return jwt.sign({ id: this._id }, process.env.REFRESH_TOKEN_SECRET, {
+        expiresIn: process.env.REFRESH_TOKEN_EXPIRE
+    });
+}
+
 //Match User entered password
 UserSchema.methods.matchPassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
